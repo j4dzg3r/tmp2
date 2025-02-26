@@ -1,20 +1,4 @@
 services:
-  backend:
-    build:
-      context: .
-      dockerfile: ./django_project/Dockerfile
-    ports:
-      - "8080:8080"
-
-    depends_on:
-      db:
-        condition: service_healthy
-      pgbouncer:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      redis:
-        condition: service_started
   db:
     image: postgres:15
     environment:
@@ -31,43 +15,67 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-  redis:
-    image: redis:alpine
-    restart: unless-stopped
-    ports:
-      - ${REDIS_PORT}:${REDIS_PORT}
-    volumes:
-      - redis:/data
-  minio:
-    image: minio/minio:latest
-    restart: always
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:${MINIO_PORT}/minio/health/live" ]
-      interval: 30s
-      timeout: 20s
-      retries: 3
-    ports:
-      - ${MINIO_PORT}:${MINIO_PORT}
-      - ${MINIO_WEB_PORT}:${MINIO_WEB_PORT}
-    volumes:
-      - minio_data:/data
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    command: server /data --console-address ":${MINIO_WEB_PORT}"
+#
+#  pgbouncer:
+#    image: edoburu/pgbouncer
+#    container_name: pgbouncer
+#    restart: always
+#    depends_on:
+#      db:
+#        condition: service_healthy
+#    environment:
+#      DB_USER: ${POSTGRES_USER}
+#      DB_PASSWORD: ${POSTGRES_PASSWORD}
+#      DB_HOST: db
+#      DB_NAME: ${POSTGRES_DB}
+#    ports:
+#      - ${PGBOUNCER_PORT}:${PGBOUNCER_PORT}
+#    healthcheck:
+#      test: >
+#        /bin/sh -c
+#        "psql -U $${DB_USER} -h $${DB_HOST} -d $${DB_NAME} -p 5432 -c 'SELECT 1' -q -t >/dev/null"
+#      interval: 5s
+#      timeout: 3s
+#      retries: 5
+#      start_period: 10s
+#    volumes:
+#      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini
+#      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt
+
   pgbouncer:
-    build: ./django_project/pgbouncer
+    image: edoburu/pgbouncer
     container_name: pgbouncer
     restart: always
     depends_on:
       db:
         condition: service_healthy
     environment:
-      DB_HOST: db
-    env_file:
-      - .env
+      DB_HOST: ${POSTGRES_HOST}
     ports:
       - ${PGBOUNCER_PORT}:${PGBOUNCER_PORT}
+    command: >
+      sh -c "
+        echo \"[databases]
+        * = host=${POSTGRES_HOST} port=${POSTGRES_PORT}
+
+        [pgbouncer]
+        listen_port = 6432
+        listen_addr = *
+        auth_type = md5
+        auth_file = /etc/pgbouncer/userlist.txt
+        logfile = /var/log/pgbouncer/pgbouncer.log
+        pidfile = /var/run/pgbouncer/pgbouncer.pid
+        pool_mode = session
+        max_client_conn = 2000
+        default_pool_size = 200
+        \" > /etc/pgbouncer/pgbouncer.ini;
+
+        echo \"\\\"${POSTGRES_USER}\\\" \\\"${POSTGRES_PASSWORD}\\\"\" > /etc/pgbouncer/userlist.txt;
+        exec /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
+      "
+#    volumes:
+#      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini
+#      - ./pgbouncer/userlist.txt:/etc/pgbouncer/userlist.txt
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -h localhost -p ${PGBOUNCER_PORT}" ]
       interval: 10s
@@ -75,7 +83,49 @@ services:
       retries: 5
       start_period: 10s
 
+#  backend:
+#    build:
+#      context: .
+#      dockerfile: ./django_project/Dockerfile
+#    ports:
+#      - "8080:8080"
+#
+#    depends_on:
+#      db:
+#        condition: service_healthy
+#      pgbouncer:
+#        condition: service_healthy
+#      minio:
+#        condition: service_healthy
+#      redis:
+#        condition: service_started
+#
+#  redis:
+#    image: redis:alpine
+#    restart: unless-stopped
+#    ports:
+#      - ${REDIS_PORT}:${REDIS_PORT}
+#    volumes:
+#      - redis:/data
+#  minio:
+#    image: minio/minio:latest
+#    restart: always
+#    healthcheck:
+#      test: [ "CMD", "curl", "-f", "http://localhost:${MINIO_PORT}/minio/health/live" ]
+#      interval: 30s
+#      timeout: 20s
+#      retries: 3
+#    ports:
+#      - ${MINIO_PORT}:${MINIO_PORT}
+#      - ${MINIO_WEB_PORT}:${MINIO_WEB_PORT}
+#    volumes:
+#      - minio_data:/data
+#    environment:
+#      MINIO_ROOT_USER: minioadmin
+#      MINIO_ROOT_PASSWORD: minioadmin
+#    command: server /data --console-address ":${MINIO_WEB_PORT}"
+
 volumes:
   postgres_data:
-  redis:
-  minio_data:
+#  redis:
+#  minio_data:
