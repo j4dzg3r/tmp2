@@ -1,0 +1,81 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: ./django_project/Dockerfile
+    ports:
+      - "8080:8080"
+
+    depends_on:
+      db:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_started
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    ports:
+      - ${POSTGRES_PORT}:${POSTGRES_PORT}
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    ports:
+      - ${REDIS_PORT}:${REDIS_PORT}
+    volumes:
+      - redis:/data
+  minio:
+    image: minio/minio:latest
+    restart: always
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:${MINIO_PORT}/minio/health/live" ]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    ports:
+      - ${MINIO_PORT}:${MINIO_PORT}
+      - ${MINIO_WEB_PORT}:${MINIO_WEB_PORT}
+    volumes:
+      - minio_data:/data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":${MINIO_WEB_PORT}"
+  pgbouncer:
+    build: ./django_project/pgbouncer
+    container_name: pgbouncer
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+    env_file:
+      - .env
+    ports:
+      - ${PGBOUNCER_PORT}:${PGBOUNCER_PORT}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -h localhost -p ${PGBOUNCER_PORT}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:
+  redis:
+  minio_data:
